@@ -21,7 +21,7 @@ use tauri_plugin_notification::NotificationExt;
 // Compile-time default; override by exporting NYARCH_URL before `tauri build`.
 const DEFAULT_URL: &str = match option_env!("NYARCH_URL") {
     Some(u) => u,
-    None => "https://nyarch.example.com",
+    None => "https://nyarch.xyz",
 };
 
 static HINTED_TRAY: AtomicBool = AtomicBool::new(false);
