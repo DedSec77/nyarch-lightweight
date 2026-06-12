@@ -1,0 +1,91 @@
+name: Desktop release (lite)
+
+# Builds the lightweight nyarch desktop shell for Windows and Linux.
+# This build does NOT bundle the frontend — it opens the live site in a native
+# WebView. The only thing it needs is the site URL, injected at build time as
+# NYARCH_URL (set it as a repo variable or secret).
+#
+# Bundles produced:
+#   Windows : .msi (WiX)  +  .exe (NSIS setup)
+#   Linux   : .deb        +  .AppImage        +  raw ELF binary
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            args: ''
+          - platform: windows-latest
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            build-essential \
+            libssl-dev
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Tauri CLI
+        run: npm install
+
+      - name: Build desktop app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The live site URL is baked into the Rust binary at compile time.
+          # Set NYARCH_URL as a repo variable (Settings -> Secrets and variables
+          # -> Actions -> Variables) or secret. Falls back to the constant in
+          # src-tauri/src/lib.rs if unset.
+          NYARCH_URL: ${{ vars.NYARCH_URL || secrets.NYARCH_URL }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'nyarch-lightweight ${{ github.ref_name }}'
+          releaseBody: 'Lightweight desktop shell (Windows .msi/.exe, Linux .deb/.AppImage/binary). Loads the live site.'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+      - name: Upload raw Linux binary to release
+        if: matrix.platform == 'ubuntu-22.04'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BIN="src-tauri/target/release/nyarch-lightweight"
+          if [ -f "$BIN" ]; then
+            cp "$BIN" "nyarch-lightweight-linux-x86_64"
+            gh release upload "${{ github.ref_name }}" "nyarch-lightweight-linux-x86_64" --clobber
+          else
+            echo "Raw binary not found at $BIN; skipping."
+            ls -la src-tauri/target/release/ || true
+          fi
